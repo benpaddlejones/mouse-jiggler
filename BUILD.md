@@ -78,24 +78,12 @@ Complete step-by-step instructions for building and programming your USB Mouse J
 
 1. **Open Arduino IDE**
 
-2. **Add Board Manager URL**:
-   - Click **File → Preferences** (or **Arduino IDE → Settings** on Mac)
-   - Find "Additional Boards Manager URLs" field
-   - Paste this URL:
-     ```
-     https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
-     ```
-   - If there are other URLs already there, click the button next to the field and add it on a new line
-   - Click **OK**
-
-   ![Board Manager URL](https://docs.arduino.cc/static/4e20f58141a9e235bb66ac0dfdfdf130/a6d36/board-manager-preferences.png)
-
-3. **Install Pico Board Package**:
+2. **Install Pico Board Package** (no extra URL needed — this ships with Arduino IDE):
    - Click **Tools → Board → Boards Manager**
-   - In the search box, type: `pico`
-   - Find **"Raspberry Pi Pico/RP2040"** by Earle F. Philhower, III
+   - In the search box, type: `mbed rp2040`
+   - Find **"Arduino Mbed OS RP2040 Boards"**
    - Click **Install**
-   - Wait for installation to complete (may take 5-10 minutes, ~500MB download)
+   - Wait for installation to complete (may take several minutes)
    - Status will show "INSTALLED" when complete
 
    ![Boards Manager](https://i0.wp.com/randomnerdtutorials.com/wp-content/uploads/2021/05/Boards-Manager-Install-Raspberry-Pi-Pico-RP2040.png)
@@ -105,22 +93,10 @@ Complete step-by-step instructions for building and programming your USB Mouse J
    - You should see **"Raspberry Pi RP2040 Boards"** in the menu
    - Hover over it to see board options
 
-### Step 3: Install Adafruit TinyUSB Library
+### Step 3: Libraries
 
-1. **Open Library Manager**:
-   - Click **Sketch → Include Library → Manage Libraries...**
-   - Or click **Tools → Manage Libraries...**
-
-2. **Search and Install**:
-   - In the search box, type: `Adafruit TinyUSB`
-   - Find **"Adafruit TinyUSB Library"** by Adafruit
-   - Click **Install**
-   - If prompted to install dependencies, click **Install All**
-   - Wait for "INSTALLED" status
-
-   ![Library Manager](https://cdn-learn.adafruit.com/assets/assets/000/093/689/medium800/adafruit_products_Arduino_Library_Manager.png)
-
-3. **Close Library Manager** when complete
+No extra libraries need to be installed. The **Arduino Mbed OS RP2040 Boards** package includes
+built-in USB HID support (`PluggableUSBHID` / `USBMouse`) which this firmware uses.
 
 ---
 
@@ -139,34 +115,45 @@ Complete step-by-step instructions for building and programming your USB Mouse J
 Copy and paste this complete code into Arduino IDE:
 
 ```cpp
-#include "Adafruit_TinyUSB.h"
+// USB Mouse Jiggler for Raspberry Pi Pico
+// Compatible with: Arduino Mbed OS RP2040 Boards
+// Board setting: Tools → Board → Arduino Mbed OS RP2040 Boards → Raspberry Pi Pico
 
-// HID report descriptor for mouse
-uint8_t const desc_hid_report[] = {
-  TUD_HID_REPORT_DESC_MOUSE()
-};
+#include "PluggableUSBHID.h"
+#include "USBMouse.h"
 
-// Create HID device
-Adafruit_USBD_HID usb_hid(desc_hid_report, sizeof(desc_hid_report), HID_ITF_PROTOCOL_MOUSE, 2, false);
+// Create USB Mouse device
+USBMouse mouse;
 
 unsigned long lastMoveTime = 0;
 unsigned long nextMoveDelay = 0;
 
+// Perform a jiggle: move a small random amount in a random direction.
+// Uses tiny 1-5 pixel movements so cursor barely drifts over time,
+// but the OS registers real net cursor displacement to prevent sleep.
+void performMouseJiggle() {
+  // Small random displacement: 1-5 pixels in each axis
+  int8_t moveX = random(-5, 6);  // -5 to +5
+  int8_t moveY = random(-5, 6);  // -5 to +5
+
+  // Ensure at least some movement occurs
+  if (moveX == 0 && moveY == 0) {
+    moveX = 1;
+  }
+
+  mouse.move(moveX, moveY);
+}
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  usb_hid.begin();
-  
-  // Wait for USB enumeration (up to 5 seconds)
-  for (int i = 0; i < 50 && !TinyUSBDevice.mounted(); i++) {
-    digitalWrite(LED_BUILTIN, i % 2);  // Blink while waiting
-    delay(100);
-  }
-  
+
+  // USBMouse constructor already blocked until USB was enumerated,
+  // so by the time we reach here the device is ready.
   digitalWrite(LED_BUILTIN, HIGH);  // Solid LED when ready
-  
+
   // Seed random number generator
-  randomSeed(analogRead(26));  // Use floating pin for randomness
-  
+  randomSeed(analogRead(A0));  // Use floating analog pin for randomness
+
   // Set first random delay (20-60 seconds)
   nextMoveDelay = random(20000, 60001);  // milliseconds
   lastMoveTime = millis();
@@ -175,65 +162,21 @@ void setup() {
 void loop() {
   // Check if it's time to move the mouse
   if (millis() - lastMoveTime >= nextMoveDelay) {
-    
-    // Only move if USB is ready
-    if (usb_hid.ready()) {
-      
-      // Random distance: 100-300 pixels
-      int distance = random(100, 301);
-      
-      // Random direction (0-360 degrees)
-      float angle = random(0, 360) * 3.14159 / 180.0;  // Convert to radians
-      
-      // Calculate x and y components
-      int totalX = (int)(cos(angle) * distance);
-      int totalY = (int)(sin(angle) * distance);
-      
-      // Move in small increments (max ±127 per report)
-      while (totalX != 0 || totalY != 0) {
-        int8_t moveX = 0;
-        int8_t moveY = 0;
-        
-        // Move X
-        if (totalX > 127) {
-          moveX = 127;
-          totalX -= 127;
-        } else if (totalX < -127) {
-          moveX = -127;
-          totalX += 127;
-        } else {
-          moveX = totalX;
-          totalX = 0;
-        }
-        
-        // Move Y
-        if (totalY > 127) {
-          moveY = 127;
-          totalY -= 127;
-        } else if (totalY < -127) {
-          moveY = -127;
-          totalY += 127;
-        } else {
-          moveY = totalY;
-          totalY = 0;
-        }
-        
-        // Send movement
-        usb_hid.mouseMove(0, moveX, moveY);
-        delay(5);  // Small delay between movements
-      }
-      
-      // Blink LED to show movement happened
-      digitalWrite(LED_BUILTIN, LOW);
-      delay(100);
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    
+
+    // mouse.move() blocks internally until the report can be sent,
+    // so no readiness check is needed.
+    performMouseJiggle();
+
+    // Blink LED to show movement happened
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(100);
+    digitalWrite(LED_BUILTIN, HIGH);
+
     // Set next random delay (20-60 seconds)
     nextMoveDelay = random(20000, 60001);
     lastMoveTime = millis();
   }
-  
+
   delay(100);  // Check every 100ms
 }
 ```
@@ -251,20 +194,14 @@ void loop() {
 ⚠️ **CRITICAL STEP** - These settings must be correct:
 
 1. **Select Board**:
-   - Click **Tools → Board → Raspberry Pi RP2040 Boards**
-   - Choose your board:
-     - **Raspberry Pi Pico** (for original Pico or Pico W)
-     - **Raspberry Pi Pico 2** (for Pico 2 with RP2350)
+   - Click **Tools → Board → Arduino Mbed OS RP2040 Boards**
+   - Select **Raspberry Pi Pico**
 
-2. **Select USB Stack** ⚠️ **MOST IMPORTANT**:
-   - Click **Tools → USB Stack**
-   - Select **"Adafruit TinyUSB"**
-   - ❌ Do NOT use "Pico SDK" for this project
+2. **No extra USB stack setting is needed** — the Mbed core handles USB HID natively.
 
 3. **Other Settings** (optional, defaults are fine):
    - **Flash Size**: Leave as default (2MB)
    - **CPU Speed**: Leave as default (133 MHz)
-   - **Optimize**: Leave as default (-Os Small)
 
 ### Step 5: Verify/Compile the Code
 
