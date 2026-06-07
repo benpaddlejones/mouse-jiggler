@@ -1,4 +1,5 @@
 {
   "name": "mouse-jiggler",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "postCreateCommand": "bash .devcontainer/setup-arduino.sh"
 }
