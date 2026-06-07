@@ -1,20 +1,4 @@
 {
   "name": "mouse-jiggler",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  "customizations": {
-    "vscode": {
-      "settings": {
-        "files.associations": {
-          "*.ino": "cpp"
-        }
-      },
-      "extensions": [
-        "yusifaliyevpro.vscicons",
-        "streetsidesoftware.code-spell-checker",
-        "streetsidesoftware.code-spell-checker-british-english",
-        "ms-vscode.cpptools",
-        "vsciot-vscode.vscode-arduino"
-      ]
-    }
-  }
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
 }
