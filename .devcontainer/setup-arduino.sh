@@ -2,7 +2,7 @@
 set -euo pipefail
 
 sudo apt-get update
-sudo apt-get install -y --no-install-recommends curl ca-certificates tar
+sudo apt-get install -y --no-install-recommends curl ca-certificates tar jq git
 
 ARCH="$(dpkg --print-architecture)"
 case "$ARCH" in
@@ -33,3 +33,17 @@ arduino-cli core update-index
 arduino-cli core install arduino:mbed_rp2040
 
 echo "Arduino CLI + RP2040 core installed successfully."
+
+# Verify the full toolchain used by this project is ready to go.
+echo ""
+echo "===== Toolchain versions ====="
+git --version
+curl --version | head -n1
+jq --version
+arduino-cli version
+if command -v gh >/dev/null 2>&1; then
+  gh --version | head -n1
+else
+  echo "WARNING: GitHub CLI (gh) not found on PATH"
+fi
+echo "=============================="

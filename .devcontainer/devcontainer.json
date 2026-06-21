@@ -1,5 +1,15 @@
 {
   "name": "mouse-jiggler",
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
-  "postCreateCommand": "bash .devcontainer/setup-arduino.sh"
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bash .devcontainer/setup-arduino.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "github.vscode-pull-request-github"
+      ]
+    }
+  }
 }

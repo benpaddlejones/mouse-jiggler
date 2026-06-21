@@ -4,23 +4,25 @@ A USB HID mouse jiggler that prevents computers from going to sleep by randomly 
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%20Pico-red.svg)](https://www.raspberrypi.com/documentation/microcontrollers/raspberry-pi-pico.html)
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.1.0)
 [![Release](https://img.shields.io/github/v/release/benpaddlejones/mouse-jiggler)](https://github.com/benpaddlejones/mouse-jiggler/releases/latest)
 
-**Quick Links:** [Download v1.0.0](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.0.0/usb-jiggler.uf2) • [Build Guide](BUILD.md) • [Releases](https://github.com/benpaddlejones/mouse-jiggler/releases) • [Report Issue](https://github.com/benpaddlejones/mouse-jiggler/issues)
+**Quick Links:** [Download v1.1.0](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.1.0/usb-jiggler.uf2) • [Build Guide](BUILD.md) • [Releases](https://github.com/benpaddlejones/mouse-jiggler/releases) • [Report Issue](https://github.com/benpaddlejones/mouse-jiggler/issues)
 
 ## ✨ Features
 
-- 🎲 Random movement every 20-60 seconds
-- 📏 Moves 100-300 pixels in random directions
-- 💡 LED indicator blinks on movement
+- 🎲 Random movement every 20-60 seconds (first move after just 5-10 seconds)
+- 📏 Moves up to 40 pixels per axis in random directions
+- 🚀 Startup self-test: confirms the mouse works the moment it's plugged in
+- 🛡️ Hardware watchdog auto-recovers the device if a USB send ever hangs
+- 💡 LED status patterns for startup, ready, and movement
 - 🔌 Plug and play - no software installation needed
 - ✅ Compatible with Raspberry Pi Pico (RP2040) and Pico 2 (RP2350)
 - 🖥️ Works on Windows, macOS, and Linux
 
 ## 📦 Download
 
-**Get the latest firmware:** [Download usb-jiggler.uf2 (v1.0.0)](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.0.0/usb-jiggler.uf2)
+**Get the latest firmware:** [Download usb-jiggler.uf2 (v1.1.0)](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.1.0/usb-jiggler.uf2)
 
 Or browse all releases: [Releases Page](https://github.com/benpaddlejones/mouse-jiggler/releases)
 
@@ -35,8 +37,8 @@ Or browse all releases: [Releases Page](https://github.com/benpaddlejones/mouse-
 ### Installation Steps
 
 1. **Download the firmware**
-   - Go to the [v1.0.0 release](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.0.0)
-   - Download [`usb-jiggler.uf2`](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.0.0/usb-jiggler.uf2)
+   - Go to the [v1.1.0 release](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.1.0)
+   - Download [`usb-jiggler.uf2`](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.1.0/usb-jiggler.uf2)
 
 2. **Put Pico in bootloader mode**
    - Unplug your Pico from the computer
@@ -51,10 +53,11 @@ Or browse all releases: [Releases Page](https://github.com/benpaddlejones/mouse-
    - The RPI-RP2 drive will disappear
 
 4. **Verify it's working**
-   - The LED will blink rapidly for 2-3 seconds (USB connecting)
-   - Then the LED stays **solid** (ready)
-   - Wait up to 60 seconds for the first mouse movement
-   - The LED will blink briefly each time the mouse moves
+   - The LED stays **off** while the Pico connects to USB
+   - Then it gives **3 slow blinks** and goes **solid** (ready)
+   - The cursor does a quick **right-then-left self-test move** right away
+   - The first random move happens after 5-10 seconds, then every 20-60 seconds
+   - The LED gives **3 quick blinks** each time the mouse moves
 
 ### Visual Guide
 
@@ -72,18 +75,19 @@ Step 1: Hold BOOTSEL          Step 2: Plug in USB          Step 3: Drag UF2 file
 
 | LED Pattern | Meaning |
 |------------|---------|
-| **Rapid blinking** (2-3 sec) | USB device connecting |
+| **Off** | USB device connecting (waiting for host) |
+| **3 slow blinks** (~0.5s each) | Device enumerated and starting up |
 | **Solid ON** | Ready and waiting |
-| **Brief blink** | Mouse movement occurred |
-| **Off or constant blinking** | Error - try reflashing |
+| **3 quick blinks** (~0.15s each) | Mouse movement occurred |
+| **Stuck off** | Error - try reflashing or another USB port |
 
 ## 🎯 Usage
 
 ### Normal Operation
 
 - Plug the Pico into any USB port
-- Wait for solid LED (device ready)
-- Mouse moves randomly every 20-60 seconds
+- Wait for the 3 startup blinks and solid LED (device ready)
+- The cursor does a quick self-test move, then jiggles randomly every 20-60 seconds
 - No configuration needed!
 
 ### Stopping the Jiggler
@@ -145,10 +149,13 @@ Step 1: Hold BOOTSEL          Step 2: Plug in USB          Step 3: Drag UF2 file
 
 | Parameter | Value |
 |-----------|-------|
-| **Movement Interval** | 20-60 seconds (random) |
-| **Movement Distance** | 100-300 pixels (random) |
-| **Movement Direction** | 360° (random) |
-| **Movement Speed** | Smooth incremental movement |
+| **First Movement** | 5-10 seconds after startup (random) |
+| **Movement Interval** | 20-60 seconds (random) thereafter |
+| **Movement Distance** | -40 to +40 pixels per axis (random) |
+| **Movement Direction** | Random on each axis |
+| **Movement Speed** | Single instantaneous move |
+| **Startup Self-Test** | +50px right, then -50px left |
+| **Watchdog Timeout** | 5 seconds (auto-reset on hang) |
 
 ### Hardware Specifications
 
@@ -197,14 +204,13 @@ See [BUILD.md](BUILD.md) for detailed compilation instructions.
 **Quick build:**
 ```bash
 # Requirements
-- Arduino IDE with Arduino-Pico board support
-- Adafruit TinyUSB Library
+- Arduino IDE with "Arduino Mbed OS RP2040 Boards" board support
+  (no extra USB libraries needed — native USBMouse HID is built in)
 
 # Build steps
 1. Open src/mouse-jiggler/mouse-jiggler.ino in Arduino IDE
-2. Select Tools → Board → Raspberry Pi Pico (or Pico 2)
-3. Select Tools → USB Stack → Adafruit TinyUSB
-4. Click Sketch → Export Compiled Binary
+2. Select Tools → Board → Arduino Mbed OS RP2040 Boards → Raspberry Pi Pico
+3. Click Sketch → Export Compiled Binary
 ```
 
 ## ⚠️ Important Notes
@@ -224,7 +230,18 @@ See [BUILD.md](BUILD.md) for detailed compilation instructions.
 - Movement is visible on screen and may be detected
 - Not suitable for high-security environments
 
-## 📄 License
+## � Version Notes
+
+### v1.1.0
+
+- 🎲 Random mouse jiggle every 20-60 seconds, with a faster 5-10 second first move
+- 📏 Random movement of -40 to +40 pixels per axis
+- 🚀 Startup self-test move (+50px right, -50px left) to confirm the device works immediately
+- 💡 LED status patterns: off while connecting, 3 slow startup blinks, solid when ready, 3 quick blinks on each move
+- 🛡️ Hardware watchdog (5s timeout) automatically resets and re-enumerates the device if a USB report send ever hangs (e.g. after host sleep/suspend)
+- 🔧 Built on the native **Arduino Mbed OS RP2040** USB HID stack (`PluggableUSBHID` / `USBMouse`) — no external USB libraries required
+
+## �📄 License
 
 This project is released under the MIT License. See [LICENSE](LICENSE) for details.
 
@@ -234,15 +251,14 @@ MIT License - Copyright (c) 2025 benpaddlejones
 
 ## 🙏 Acknowledgments
 
-- **[TinyUSB](https://github.com/hathach/tinyusb)** by Ha Thach (@hathach)
-- **[Arduino-Pico](https://github.com/earlephilhower/arduino-pico)** by Earle F. Philhower, III
-- **[Adafruit Industries](https://github.com/adafruit)** for the TinyUSB Arduino wrapper
+- **[Arduino Mbed OS RP2040 Boards](https://github.com/arduino/ArduinoCore-mbed)** for the board core and built-in USB HID (`PluggableUSBHID` / `USBMouse`)
+- **[Arduino](https://www.arduino.cc/)** for the IDE and toolchain
 - **[Raspberry Pi Foundation](https://www.raspberrypi.org/)** for the RP2040 and RP2350
 
 ## � Documentation
 
 - **[BUILD.md](BUILD.md)** - Complete build instructions from source
-- **[Release v1.0.0](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.0.0)** - Pre-built firmware and release notes
+- **[Release v1.1.0](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.1.0)** - Pre-built firmware and release notes
 - **[All Releases](https://github.com/benpaddlejones/mouse-jiggler/releases)** - Version history
 
 ## �📞 Support

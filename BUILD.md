@@ -3,7 +3,7 @@
 Complete step-by-step instructions for building and programming your USB Mouse Jiggler.
 
 > **⚡ Quick Start:** Don't want to build from source? Download the pre-built firmware:  
-> **[Download usb-jiggler.uf2 (v1.0.0)](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.0.0/usb-jiggler.uf2)**  
+> **[Download usb-jiggler.uf2 (v1.1.0)](https://github.com/benpaddlejones/mouse-jiggler/releases/download/v1.1.0/usb-jiggler.uf2)**  
 > See [README.md](README.md) for flashing instructions.
 
 ## Table of Contents
@@ -90,7 +90,7 @@ Complete step-by-step instructions for building and programming your USB Mouse J
 
 4. **Verify Installation**:
    - Click **Tools → Board**
-   - You should see **"Raspberry Pi RP2040 Boards"** in the menu
+   - You should see **"Arduino Mbed OS RP2040 Boards"** in the menu
    - Hover over it to see board options
 
 ### Step 3: Libraries
@@ -121,45 +121,80 @@ Copy and paste this complete code into Arduino IDE:
 
 #include "PluggableUSBHID.h"
 #include "USBMouse.h"
+#include "drivers/Watchdog.h"  // Built into the Arduino Mbed OS RP2040 core (no extra library)
 
-// Create USB Mouse device
+// Onboard LED on Raspberry Pi Pico is GPIO 25
+#define LED_PIN 25
+
+// Hardware watchdog timeout. If the main loop ever stops kicking the watchdog
+// (e.g. a blocking USB report send hangs after the host suspends/sleeps), the
+// Pico resets, re-runs the USBMouse constructor, and cleanly re-enumerates.
+// 5000 ms is well within the RP2040 watchdog's ~8.3 s maximum.
+#define WATCHDOG_TIMEOUT_MS 5000
+
+// Create USB Mouse device.
+// Constructor blocks until USB is enumerated by the host (connect_blocking = true by default).
+// The onboard LED will be OFF during this time.
 USBMouse mouse;
 
 unsigned long lastMoveTime = 0;
 unsigned long nextMoveDelay = 0;
 
 // Perform a jiggle: move a small random amount in a random direction.
-// Uses tiny 1-5 pixel movements so cursor barely drifts over time,
-// but the OS registers real net cursor displacement to prevent sleep.
+// The OS registers real net cursor displacement to prevent sleep.
 void performMouseJiggle() {
-  // Small random displacement: 1-5 pixels in each axis
-  int8_t moveX = random(-5, 6);  // -5 to +5
-  int8_t moveY = random(-5, 6);  // -5 to +5
+  // Random displacement: 10-40 pixels in each axis
+  int16_t moveX = random(-40, 41);
+  int16_t moveY = random(-40, 41);
 
   // Ensure at least some movement occurs
   if (moveX == 0 && moveY == 0) {
-    moveX = 1;
+    moveX = 20;
   }
 
   mouse.move(moveX, moveY);
 }
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
 
   // USBMouse constructor already blocked until USB was enumerated,
   // so by the time we reach here the device is ready.
-  digitalWrite(LED_BUILTIN, HIGH);  // Solid LED when ready
+
+  // Startup blink pattern: 3 fast blinks to confirm device is running
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(500);
+    digitalWrite(LED_PIN, LOW);
+    delay(500);
+  }
+
+  digitalWrite(LED_PIN, HIGH);  // Solid LED when ready
+
+  // Immediate test movement on startup: move 50px right then 50px left
+  // so you can confirm the mouse is working right away
+  delay(1000);
+  mouse.move(50, 0);
+  delay(500);
+  mouse.move(-50, 0);
 
   // Seed random number generator
   randomSeed(analogRead(A0));  // Use floating analog pin for randomness
 
-  // Set first random delay (20-60 seconds)
-  nextMoveDelay = random(20000, 60001);  // milliseconds
+  // Set first random delay (5-10 seconds for quick first test, then 20-60 seconds after)
+  nextMoveDelay = random(5000, 10001);  // milliseconds
   lastMoveTime = millis();
+
+  // Start the hardware watchdog last, after all the blocking startup delays,
+  // so it can't trip during setup. From here on the loop must kick it regularly.
+  mbed::Watchdog::get_instance().start(WATCHDOG_TIMEOUT_MS);
 }
 
 void loop() {
+  // Kick the watchdog every iteration. If a blocking mouse.move() ever hangs,
+  // these kicks stop, the watchdog fires, and the device resets and reconnects.
+  mbed::Watchdog::get_instance().kick();
+
   // Check if it's time to move the mouse
   if (millis() - lastMoveTime >= nextMoveDelay) {
 
@@ -167,10 +202,13 @@ void loop() {
     // so no readiness check is needed.
     performMouseJiggle();
 
-    // Blink LED to show movement happened
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(100);
-    digitalWrite(LED_BUILTIN, HIGH);
+    // Blink LED to show movement happened (3 quick blinks)
+    for (int i = 0; i < 3; i++) {
+      digitalWrite(LED_PIN, LOW);
+      delay(150);
+      digitalWrite(LED_PIN, HIGH);
+      delay(150);
+    }
 
     // Set next random delay (20-60 seconds)
     nextMoveDelay = random(20000, 60001);
@@ -197,7 +235,7 @@ void loop() {
    - Click **Tools → Board → Arduino Mbed OS RP2040 Boards**
    - Select **Raspberry Pi Pico**
 
-2. **No extra USB stack setting is needed** — the Mbed core handles USB HID natively.
+2. **No extra USB stack setting is needed** — the Mbed core handles USB HID natively via `PluggableUSBHID` / `USBMouse`.
 
 3. **Other Settings** (optional, defaults are fine):
    - **Flash Size**: Leave as default (2MB)
@@ -262,8 +300,9 @@ void loop() {
 After upload completes:
 1. **The Pico will reboot automatically**
 2. **The RPI-RP2 drive will disappear**
-3. **The onboard LED should blink briefly then stay solid**
-4. **A new HID device should appear** in your system's device manager
+3. **The onboard LED stays off, then gives 3 slow blinks and goes solid**
+4. **The cursor does a quick right-then-left self-test move**
+5. **A new HID device should appear** in your system's device manager
 
 ---
 
@@ -272,9 +311,9 @@ After upload completes:
 ### Step 1: Visual Check
 
 1. **Check the LED**:
-   - Should be **solid green** (device ready)
-   - If blinking rapidly: Still initializing (wait 5-10 seconds)
-   - If off: Problem with upload or power
+   - Stays **off** while connecting to USB
+   - Gives **3 slow blinks** at startup, then stays **solid** (device ready)
+   - If it never lights: problem with upload or power
 
 ### Step 2: Device Recognition
 
@@ -298,16 +337,17 @@ Look for a new USB HID device in the list
 
 1. **Do not move your mouse**
 2. **Watch the cursor** (place it in the middle of the screen)
-3. **Wait up to 60 seconds** (first movement is random between 20-60 seconds)
-4. **Cursor should move** automatically
-5. **LED will blink briefly** when movement occurs
+3. On startup the cursor does a quick **right-then-left self-test move**
+4. **Wait 5-10 seconds** for the first random movement (then every 20-60 seconds)
+5. **Cursor should move** automatically
+6. **LED gives 3 quick blinks** when movement occurs
 
 ### Step 4: Verify Random Behavior
 
 - Watch for 2-3 movements (may take up to 3 minutes total)
 - Each movement should:
   - Occur at different time intervals (20-60 seconds apart)
-  - Move different distances (100-300 pixels)
+  - Move different distances (up to 40 pixels per axis)
   - Move in different directions
 
 ✅ **If all tests pass, your Mouse Jiggler is working correctly!**
@@ -318,15 +358,16 @@ Look for a new USB HID device in the list
 
 ### Compilation Errors
 
-#### Error: "Adafruit_TinyUSB.h: No such file or directory"
-**Solution**: Install Adafruit TinyUSB Library
-- Go back to [Step 3: Install Adafruit TinyUSB Library](#step-3-install-adafruit-tinyusb-library)
-- Make sure it says "INSTALLED" in Library Manager
+#### Error: "PluggableUSBHID.h: No such file or directory"
+**Solution**: Install the Mbed RP2040 board package
+- Go back to [Step 2: Add Raspberry Pi Pico Board Support](#step-2-add-raspberry-pi-pico-board-support)
+- Make sure **"Arduino Mbed OS RP2040 Boards"** shows "INSTALLED" in Boards Manager
+- This package provides the built-in `PluggableUSBHID` / `USBMouse` / `Watchdog` headers
 
-#### Error: "TUD_HID_REPORT_DESC_MOUSE was not declared"
-**Solution**: Check USB Stack setting
-- Go to **Tools → USB Stack**
-- Make sure **"Adafruit TinyUSB"** is selected (not "Pico SDK")
+#### Error: "'mbed' has not been declared" or Watchdog errors
+**Solution**: Wrong board core selected
+- Go to **Tools → Board** and select **Arduino Mbed OS RP2040 Boards → Raspberry Pi Pico**
+- The watchdog code requires the Mbed core (not the community "Earle Philhower" RP2040 core)
 
 #### Error: "Fatal Python error: initfsencoding"
 **Solution**: Corrupted board package installation
@@ -369,13 +410,13 @@ Look for a new USB HID device in the list
 **Cause**: Device cannot enumerate as USB device
 **Solutions:**
 1. Unplug and replug the Pico
-2. Try a different USB port
-3. Verify USB Stack is set to "Adafruit TinyUSB"
+2. Try a different USB port (must be data-capable)
+3. Verify the board is set to **Arduino Mbed OS RP2040 Boards → Raspberry Pi Pico**
 4. Re-upload firmware
 
 #### Mouse Not Moving
 **Checks:**
-1. **Wait longer**: First movement can take up to 60 seconds
+1. **Wait for the first move**: happens 5-10 seconds after startup, then every 20-60 seconds
 2. **Check LED**: Should be solid (not blinking) when ready
 3. **Check Device Manager**: Verify new HID mouse device appears
 4. **Check code**: Verify you copied the complete firmware code
@@ -391,12 +432,11 @@ Look for a new USB HID device in the list
 ### Still Having Issues?
 
 1. **Verify all dependencies installed**:
-   - Boards Manager shows "INSTALLED" for Raspberry Pi Pico
-   - Library Manager shows "INSTALLED" for Adafruit TinyUSB
+   - Boards Manager shows "INSTALLED" for Arduino Mbed OS RP2040 Boards
 
 2. **Verify settings**:
-   - Tools → Board → Raspberry Pi Pico (or Pico 2)
-   - Tools → USB Stack → **Adafruit TinyUSB** ✓
+   - Tools → Board → Arduino Mbed OS RP2040 Boards → Raspberry Pi Pico (or Pico 2)
+   - No extra USB stack or libraries required ✅
 
 3. **Test with blink sketch first**:
    ```cpp
@@ -410,9 +450,8 @@ Look for a new USB HID device in the list
      delay(1000);
    }
    ```
-   - Use **Tools → USB Stack → Pico SDK** for this test
-   - If blink works, hardware is okay
-   - Switch back to Adafruit TinyUSB for mouse jiggler
+   - If blink works, the board and toolchain are okay
+   - Re-upload the mouse jiggler firmware afterwards
 
 ---
 
@@ -434,43 +473,43 @@ nextMoveDelay = random(20000, 60001);  // values in milliseconds
 
 ### Changing Movement Distance
 
-To adjust how far the mouse moves, modify this line:
+To adjust how far the mouse moves, modify these lines in `performMouseJiggle()`:
 
 ```cpp
-// Change from 100-300 pixels to something else
-int distance = random(100, 301);
+// Change from -40..+40 pixels per axis to something else
+int16_t moveX = random(-40, 41);
+int16_t moveY = random(-40, 41);
 ```
 
 **Examples:**
-- Small movements (50-150 pixels): `random(50, 151)`
-- Large movements (200-500 pixels): `random(200, 501)`
-- Tiny movements (10-50 pixels): `random(10, 51)`
+- Smaller movements (-10..+10 pixels): `random(-10, 11)`
+- Larger movements (-80..+80 pixels): `random(-80, 81)`
+- Tiny movements (-5..+5 pixels): `random(-5, 6)`
+
+### Changing the First-Move Delay
+
+The first jiggle happens sooner than the rest so you can confirm it works:
+
+```cpp
+// First delay (in setup): 5-10 seconds
+nextMoveDelay = random(5000, 10001);
+```
 
 ### Fixed Movement Pattern
 
-To make the mouse move in a predictable pattern instead of randomly:
+To make the mouse move in a predictable pattern instead of randomly,
+replace the body of `performMouseJiggle()`:
 
 ```cpp
-void loop() {
-  if (millis() - lastMoveTime >= 30000) {  // Fixed 30 seconds
-    if (usb_hid.ready()) {
-      // Move in a circle pattern
-      usb_hid.mouseMove(0, 50, 0);   // Right
-      delay(100);
-      usb_hid.mouseMove(0, 0, 50);   // Down
-      delay(100);
-      usb_hid.mouseMove(0, -50, 0);  // Left
-      delay(100);
-      usb_hid.mouseMove(0, 0, -50);  // Up
-      
-      // Blink LED
-      digitalWrite(LED_BUILTIN, LOW);
-      delay(100);
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    lastMoveTime = millis();
-  }
+void performMouseJiggle() {
+  // Move in a square pattern (uses the global USBMouse `mouse`)
+  mouse.move(40, 0);    // Right
   delay(100);
+  mouse.move(0, 40);    // Down
+  delay(100);
+  mouse.move(-40, 0);   // Left
+  delay(100);
+  mouse.move(0, -40);   // Up
 }
 ```
 
@@ -478,20 +517,27 @@ void loop() {
 
 To disable LED blinking on movement:
 
+### Adjusting LED Behavior
+
+To disable the LED blink on movement, remove the blink loop in `loop()`:
+
 ```cpp
-// Comment out or remove these lines in loop():
-digitalWrite(LED_BUILTIN, LOW);
-delay(100);
-digitalWrite(LED_BUILTIN, HIGH);
+// Comment out or remove this block in loop():
+for (int i = 0; i < 3; i++) {
+  digitalWrite(LED_PIN, LOW);
+  delay(150);
+  digitalWrite(LED_PIN, HIGH);
+  delay(150);
+}
 ```
 
-To make LED blink continuously (always visible):
+To make the LED blink continuously (always visible):
 
 ```cpp
 void loop() {
   // Add at start of loop
-  digitalWrite(LED_BUILTIN, (millis() / 500) % 2);  // Blink every 500ms
-  
+  digitalWrite(LED_PIN, (millis() / 500) % 2);  // Blink every 500ms
+
   // ... rest of your code
 }
 ```
@@ -515,8 +561,8 @@ After making your changes and verifying the code compiles:
 ### Official Documentation
 
 - **[Raspberry Pi Pico Documentation](https://www.raspberrypi.com/documentation/microcontrollers/raspberry-pi-pico.html)** - Official hardware and software documentation
-- **[Arduino-Pico GitHub](https://github.com/earlephilhower/arduino-pico)** - Board support package documentation
-- **[Adafruit TinyUSB Library](https://github.com/adafruit/Adafruit_TinyUSB_Arduino)** - Library documentation and examples
+- **[Arduino Mbed OS RP2040 Boards](https://github.com/arduino/ArduinoCore-mbed)** - Board core with built-in USB HID (`PluggableUSBHID` / `USBMouse`)
+- **[Mbed OS Watchdog](https://os.mbed.com/docs/mbed-os/latest/apis/watchdog.html)** - Hardware watchdog API used for auto-recovery
 - **[RP2040 Datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)** - Detailed chip specifications
 
 ### Community Resources
@@ -527,18 +573,21 @@ After making your changes and verifying the code compiles:
 
 ### Related Projects
 
-- **[Pre-built Firmware v1.0.0](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.0.0)** - Download ready-to-use UF2 file
+- **[Pre-built Firmware v1.1.0](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.1.0)** - Download ready-to-use UF2 file
 - **[Project Repository](https://github.com/benpaddlejones/mouse-jiggler)** - Source code and updates
 
 ---
 
 ## Version History
 
-### v1.0.0 (Current)
+### v1.1.0 (Current)
 - Initial release
-- Random movement every 20-60 seconds
-- Random direction and distance (100-300 pixels)
-- LED status indicator
+- Random movement every 20-60 seconds, with a faster 5-10 second first move
+- Random direction and distance (-40 to +40 pixels per axis)
+- Startup self-test move (+50px right, -50px left)
+- LED status patterns: off while connecting, 3 slow startup blinks, solid when ready, 3 quick blinks per move
+- Hardware watchdog (5s timeout) for automatic recovery from USB hangs
+- Built on the native Arduino Mbed OS RP2040 USB HID stack (no external libraries)
 - Support for Pico, Pico W, and Pico 2
 
 ### Future Plans
@@ -554,7 +603,7 @@ If you're stuck or have questions:
 
 1. **Check the [Troubleshooting](#troubleshooting) section** - Most common issues are covered
 2. **Read the [README](README.md)** - Quick start guide and testing instructions
-3. **Visit the [Releases Page](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.0.0)** - For pre-built firmware
+3. **Visit the [Releases Page](https://github.com/benpaddlejones/mouse-jiggler/releases/tag/v1.1.0)** - For pre-built firmware
 4. **[Open an Issue](https://github.com/benpaddlejones/mouse-jiggler/issues)** - For bugs or feature requests
 5. **[Start a Discussion](https://github.com/benpaddlejones/mouse-jiggler/discussions)** - For general questions
 

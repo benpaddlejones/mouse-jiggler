@@ -4,9 +4,16 @@
 
 #include "PluggableUSBHID.h"
 #include "USBMouse.h"
+#include "drivers/Watchdog.h"  // Built into the Arduino Mbed OS RP2040 core (no extra library)
 
 // Onboard LED on Raspberry Pi Pico is GPIO 25
 #define LED_PIN 25
+
+// Hardware watchdog timeout. If the main loop ever stops kicking the watchdog
+// (e.g. a blocking USB report send hangs after the host suspends/sleeps), the
+// Pico resets, re-runs the USBMouse constructor, and cleanly re-enumerates.
+// 5000 ms is well within the RP2040 watchdog's ~8.3 s maximum.
+#define WATCHDOG_TIMEOUT_MS 5000
 
 // Create USB Mouse device.
 // Constructor blocks until USB is enumerated by the host (connect_blocking = true by default).
@@ -60,9 +67,17 @@ void setup() {
   // Set first random delay (5-10 seconds for quick first test, then 20-60 seconds after)
   nextMoveDelay = random(5000, 10001);  // milliseconds
   lastMoveTime = millis();
+
+  // Start the hardware watchdog last, after all the blocking startup delays,
+  // so it can't trip during setup. From here on the loop must kick it regularly.
+  mbed::Watchdog::get_instance().start(WATCHDOG_TIMEOUT_MS);
 }
 
 void loop() {
+  // Kick the watchdog every iteration. If a blocking mouse.move() ever hangs,
+  // these kicks stop, the watchdog fires, and the device resets and reconnects.
+  mbed::Watchdog::get_instance().kick();
+
   // Check if it's time to move the mouse
   if (millis() - lastMoveTime >= nextMoveDelay) {
 
